@@ -9,7 +9,7 @@ OBJ = $(SRC:.cpp=.o)
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJ) -lsqlite3
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
