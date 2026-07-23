@@ -3,6 +3,9 @@
 #include "kex.hpp"
 #include "cipher.hpp"
 #include "cipher_bridge.hpp"
+#include "config.hpp"
+#include "logger.hpp"
+
 #include <iostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -16,10 +19,7 @@
 #include <memory>
 #include <sys/epoll.h>
 
-#define PORT 2222
 #define MAX_EVENTS 64
-#define SERVER_BANNER_STR "SSH-2.0-rasmalaaiPiAuthSim_1.0"
-#define SERVER_BANNER "SSH-2.0-rasmalaaiPiAuthSim_1.0\r\n"
 #define SSH_MSG_KEXINIT 20
 
 enum SessionState {
@@ -31,6 +31,7 @@ enum SessionState {
 
 struct ClientSession {
     int fd;
+    std::string ip_address; // To log to DB
     SessionState state;
     std::string rx_text_buffer;
     std::vector<uint8_t> rx_binary_buffer;
@@ -130,6 +131,28 @@ int set_nonblocking(int fd) {
 }
 
 int main() {
+    // 1. Boot Subsystems
+    Config config;
+    if (!config.load("config.ini")) {
+        std::cerr << "[-] Missing config.ini. Aborting." << std::endl;
+        return 1;
+    }
+
+    DatabaseLogger db;
+    if (!db.init("captures.db")) {
+        std::cerr << "[-] Database init failed. Aborting." << std::endl;
+        return 1;
+    }
+
+    int port = std::stoi(config.get("PORT", "2222"));
+    std::string banner = config.get("BANNER", "SSH-2.0-Default") + "\r\n";
+    std::string rsa_n = config.get("RSA_N");
+    std::string rsa_d = config.get("RSA_D");
+
+    std::cout << "[+] Config Loaded. Port: " << port << std::endl;
+    std::cout << "[+] Database Online: captures.db" << std::endl;
+
+    // 2. Setup Socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
@@ -138,7 +161,7 @@ int main() {
     struct sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
+    address.sin_port = htons(port);
 
     bind(server_fd, reinterpret_cast<struct sockaddr*>(&address), sizeof(address));
     listen(server_fd, SOMAXCONN);
@@ -150,7 +173,7 @@ int main() {
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev);
 
     std::unordered_map<int, ClientSession> sessions;
-    std::cout << "[+] rasmalaaiPiAuthSim State Engine active on port " << PORT << "..." << std::endl;
+    std::cout << "[+] State Engine active. Awaiting targets..." << std::endl;
     struct epoll_event events[MAX_EVENTS];
 
     while (true) {
@@ -159,18 +182,26 @@ int main() {
             int current_fd = events[i].data.fd;
 
             if (current_fd == server_fd) {
-                int client_fd = accept(server_fd, nullptr, nullptr);
+                struct sockaddr_in client_addr;
+                socklen_t client_len = sizeof(client_addr);
+                int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
                 if (client_fd < 0) continue;
 
-                set_nonblocking(client_fd);
-                send(client_fd, SERVER_BANNER, strlen(SERVER_BANNER), 0);
+                // Extract IP for database logging
+                char ip_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &(client_addr.sin_addr), ip_str, INET_ADDRSTRLEN);
 
-                sessions[client_fd] = ClientSession{client_fd, STATE_WAIT_CLIENT_BANNER, "", {}, "", {}, {}, nullptr, nullptr, nullptr, nullptr, 0, 0, true, 0, {}};
+                set_nonblocking(client_fd);
+                send(client_fd, banner.c_str(), banner.length(), 0);
+
+                sessions[client_fd] = ClientSession{client_fd, std::string(ip_str), STATE_WAIT_CLIENT_BANNER, "", {}, "", {}, {}, nullptr, nullptr, nullptr, nullptr, 0, 0, true, 0, {}};
                 
                 struct epoll_event client_ev{};
                 client_ev.events = EPOLLIN | EPOLLET;
                 client_ev.data.fd = client_fd;
                 epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_ev);
+                std::cout << "[+] Target Connected: " << ip_str << std::endl;
+                
             } else {
                 auto& session = sessions[current_fd];
                 char read_buf[2048];
@@ -210,7 +241,6 @@ int main() {
                                 if (msg_code == SSH_MSG_KEXINIT) {
                                     size_t payload_len = pkt_len - pad_len - 1;
                                     session.i_c = std::vector<uint8_t>(session.rx_binary_buffer.begin() + 5, session.rx_binary_buffer.begin() + 5 + payload_len);
-                                    std::cout << "[+] KEXINIT completed." << std::endl;
                                 } 
                                 else if (msg_code == 30) { 
                                     uint32_t e_len = (session.rx_binary_buffer[6] << 24) | (session.rx_binary_buffer[7] << 16) |
@@ -229,7 +259,9 @@ int main() {
                                     std::vector<uint8_t> shared_K = math_mod_exp(client_e, server_y, p_bytes);
                                     
                                     std::vector<uint8_t> session_H;
-                                    std::vector<uint8_t> reply_payload = build_kexdh_reply(session.v_c, SERVER_BANNER_STR, session.i_c, session.i_s, client_e, server_f, shared_K, session_H);
+                                    
+                                    // DYNAMIC UPDATE: Pass config variables in
+                                    std::vector<uint8_t> reply_payload = build_kexdh_reply(session.v_c, config.get("BANNER", SERVER_BANNER_STR), session.i_c, session.i_s, client_e, server_f, shared_K, session_H, rsa_n, rsa_d);
                                     
                                     std::vector<uint8_t> reply_packet = wrap_in_binary_packet(reply_payload);
                                     send(current_fd, reply_packet.data(), reply_packet.size(), 0);
@@ -251,13 +283,9 @@ int main() {
                                     session.tx_mac->init(keys.mac_server_to_client);
 
                                     session.state = STATE_WAIT_NEWKEYS;
-                                    std::cout << "[+] Engine Armed. Awaiting Client NEWKEYS..." << std::endl;
                                 }
-                                
                                 session.rx_binary_buffer.erase(session.rx_binary_buffer.begin(), session.rx_binary_buffer.begin() + 4 + pkt_len);
-                            } else {
-                                break; 
-                            }
+                            } else break; 
                         }
                     } 
                     
@@ -271,7 +299,6 @@ int main() {
                             if (session.rx_binary_buffer.size() >= pkt_len + 4) {
                                 uint8_t msg_code = session.rx_binary_buffer[5];
                                 if (msg_code == 21) {
-                                    std::cout << "[+] Target locked. Tunnel is ENCRYPTED." << std::endl;
                                     session.state = STATE_ENCRYPTED;
                                     session.rx_seq = 3;
                                     session.tx_seq = 3;
@@ -312,20 +339,17 @@ int main() {
                                     }
                                     
                                     session.rx_binary_buffer.erase(session.rx_binary_buffer.begin(), session.rx_binary_buffer.begin() + session.expected_encrypted_bytes + 32);
-                                    
                                     uint8_t msg_code = session.current_plaintext[5];
                                     
                                     if (msg_code == 5) {
-                                        std::cout << "[+] Decrypted Code 5 (SERVICE_REQUEST). Transmitting encrypted Code 6..." << std::endl;
-                                        
                                         std::vector<uint8_t> reply_payload;
                                         reply_payload.push_back(6);
                                         write_ssh_string(reply_payload, "ssh-userauth");
-                                        
                                         std::vector<uint8_t> tx_packet = build_encrypted_packet(reply_payload, session.tx_cipher, session.tx_mac, session.tx_seq);
                                         send(current_fd, tx_packet.data(), tx_packet.size(), 0);
                                     }
                                     else if (msg_code == 50) {
+                                        // String extraction for parsing
                                         std::string raw_payload_str;
                                         for(size_t j = 5; j < session.current_plaintext.size() - session.current_plaintext[4]; ++j) {
                                             char c = session.current_plaintext[j];
@@ -334,8 +358,6 @@ int main() {
                                         }
                                         
                                         if (raw_payload_str.find("none") != std::string::npos) {
-                                            std::cout << "[+] Client probed auth methods ('none'). Forcing password prompt..." << std::endl;
-                                            
                                             std::vector<uint8_t> fail_payload;
                                             fail_payload.push_back(51); 
                                             write_ssh_string(fail_payload, "password");
@@ -345,16 +367,33 @@ int main() {
                                             send(current_fd, tx_packet.data(), tx_packet.size(), 0);
                                         } 
                                         else if (raw_payload_str.find("password") != std::string::npos) {
-                                            std::cout << "\n[$$$] BOOM! CREDENTIALS INTERCEPTED! [$$$]" << std::endl;
-                                            std::cout << "Raw Decrypted Dump: " << raw_payload_str << std::endl;
-                                            std::cout << "[+] Disconnecting client." << std::endl;
+                                            
+                                            // VERY hacky parsing of the raw decrypted dump to extract user/pass cleanly
+                                            // The string looks like: .root.ssh-connection.password..passwordLMAO
+                                            std::string ext_user = "unknown";
+                                            std::string ext_pass = "unknown";
+                                            
+                                            size_t ssh_conn_pos = raw_payload_str.find(".ssh-connection");
+                                            if (ssh_conn_pos != std::string::npos && ssh_conn_pos > 1) {
+                                                ext_user = raw_payload_str.substr(1, ssh_conn_pos - 1);
+                                            }
+                                            
+                                            size_t pass_str_pos = raw_payload_str.find("password.");
+                                            if (pass_str_pos != std::string::npos) {
+                                                ext_pass = raw_payload_str.substr(pass_str_pos + 10);
+                                            }
+
+                                            std::cout << "[$$$] INTERCEPT: " << session.ip_address << " | User: " << ext_user << " | Pass: " << ext_pass << std::endl;
+                                            
+                                            // DYNAMIC UPDATE: Log to SQLite Database!
+                                            db.log_credential(session.ip_address, ext_user, ext_pass);
+                                            
                                             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, nullptr);
                                             close(current_fd);
                                             sessions.erase(current_fd);
                                         }
                                     }
                                     
-                                    // *** THE CRITICAL FIX: DO NOT DELETE THESE THREE LINES ***
                                     session.current_plaintext.clear();
                                     session.reading_first_block = true;
                                     session.rx_seq++;
