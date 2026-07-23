@@ -47,7 +47,7 @@ sqlite3 captures.db "SELECT * FROM captures;"
 
 - **purpose**: handles heavily fragmented network streams, mitigates tcp pipelining deadlocks, drops the "none" auth trap (code 51) to force clients to prompt for passwords, and intercepts the decrypted payload block-by-block.
 
-## deplyoment 
+## deployment 
 this project relies on raw linux kernel features. it is explicitly designed for debian-based linux systems (like the raspberry pi).
 
 ### requirements
