@@ -261,7 +261,7 @@ int main() {
                                     std::vector<uint8_t> session_H;
                                     
                                     // DYNAMIC UPDATE: Pass config variables in
-                                    std::vector<uint8_t> reply_payload = build_kexdh_reply(session.v_c, config.get("BANNER", SERVER_BANNER_STR), session.i_c, session.i_s, client_e, server_f, shared_K, session_H, rsa_n, rsa_d);
+                                    std::vector<uint8_t> reply_payload = build_kexdh_reply(session.v_c, config.get("BANNER", "SSH-2.0-rasmalaaiPiAuthSim_1.0"), session.i_c, session.i_s, client_e, server_f, shared_K, session_H, rsa_n, rsa_d);
                                     
                                     std::vector<uint8_t> reply_packet = wrap_in_binary_packet(reply_payload);
                                     send(current_fd, reply_packet.data(), reply_packet.size(), 0);
