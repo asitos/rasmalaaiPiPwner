@@ -1,10 +1,4 @@
-import type { Metadata } from "next";
 import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "rasmalaaiPi // pwner_telemetry",
-  description: "live bare-metal ssh honeypot intercepts",
-};
 
 export default function RootLayout({
   children,
@@ -13,6 +7,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <title>rasmalaaiPi // pwner_telemetry</title>
+        <description>live bare-metail ssh honeypot intercepts</description>
+      </head>
       <body className="bg-black text-green-500 font-mono antialiased min-h-screen">
         {children}
       </body>
