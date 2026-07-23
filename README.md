@@ -69,6 +69,19 @@ make clean && make
 ./authsim
 ```
 
+### weaponing the default port
+if you run the honeypot as root to bind directly to port 22, you expose your system. instead, we run the daemon safely on port 2222 and use the linux kernel's nat (network address translation) to silently hijack incoming attacks.
+
+first, move your real ssh daemon to a hidden port (e.g., 4444) in /etc/ssh/sshd_config and restart it.
+
+then, install the iptables wrapper and route all traffic from port 22 straight into the honeypot.
+
+```bash
+sudo apt install iptables iptables-persistent
+sudo iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
+```
+when prompted by the installer, save the ipv4 rules so the trap survives reboots. now, every bot scanning your network will hit the honeypot on port 22, while you bypass the chaos via your hidden port.
+
 ## security & state management
 
 - **persistent logging:** utilizes prepared statements in sqlite3 to dump incoming ips, usernames, and passwords into captures.db, inherently preventing sql injection from malicious ssh payloads (e.g., root', 'pass'); drop table captures;--).
