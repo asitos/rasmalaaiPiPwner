@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# change into the project directory explicitly for cron/systemd context
+# ensure this is the correct path to your repo!
 cd /home/asitos/Projects/rasmalaaiPiAuthSim
+
+# always pull changes first using rebase to prevent divergent branch lockouts
+git pull --rebase origin main
 
 # check if the json file was updated since the last push
 if [[ -n $(git status -s captures.json) ]]; then
-    git fetch
-    git pull origin main
     echo "[+] new credentials found. syncing to upstream..."
     git add captures.json
     git commit -m "chore(telemetry): update honeypot state [skip ci]"
