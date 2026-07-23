@@ -6,6 +6,19 @@ it bypasses bloated cryptographic libraries (like openssl) by natively abusing t
 
 i wanted to see what malicious bots were trying to brute-force on my raspberry pi, but i didn't want to just run a generic third-party script. instead, i went down an absolute rabbit hole of reverse-engineering ssh protocols, weaponizing the linux kernel, and building an asynchronous tcp state machine from scratch just to steal passwords from automated scanners.
 
+## edge telemetry dashboard
+
+the bare-metal daemon operates alongside a headless `systemd` pipeline that constantly exports the raw sqlite captures into a flat `.json` file and pushes it upstream. 
+
+a serverless next.js edge api then intercepts this state, bypassing github's proxy caching to render a live, dynamic matrix of the incoming brute-force attacks.
+
+**[live dashboard feed: rasmalaai-pipwner-dashboard.vercel.app](https://rasmalaai-pipwner-dashboard.vercel.app/)**
+
+<div align="center">
+  <img src="./assets/demo-output.png" alt="live telemetry dashboard" width="100%" />
+  <p><i>pwner_telemetry: live edge rendering of captured ssh credentials</i></p>
+</div>
+
 ## demo output
 
 when a client connects, the honeypot negotiates the diffie-hellman key exchange, forges the rsa host signatures, and seamlessly transitions the tcp tunnel into an encrypted state. 
