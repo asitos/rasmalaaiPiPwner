@@ -1,4 +1,4 @@
-# rasmalaaiPiAuthSim
+# rasmalaaiPiPwner
 
 a zero-dependency, bare-metal ssh honeypot built entirely in c++ for the rasmalaaiPi ecosystem. 
 
