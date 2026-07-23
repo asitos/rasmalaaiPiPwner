@@ -1,0 +1,46 @@
+name: pwner-ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-daemon:
+    name: compile bare-metal daemon
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+        
+      - name: install debian dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev build-essential
+          
+      - name: test c++ compilation
+        run: make clean && make
+
+  build-dashboard:
+    name: compile edge telemetry
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./dashboard
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+        
+      - name: setup node environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './dashboard/package-lock.json'
+          
+      - name: install dependencies
+        run: npm ci
+        
+      - name: test next.js build
+        run: npm run build
